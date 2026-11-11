@@ -1,0 +1,17 @@
+# dependencies
+node_modules/
+
+# generated / local run output
+results/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/

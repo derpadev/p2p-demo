@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<body style="background:#111;color:#eee;font-family:sans-serif">
+<video id="v" muted autoplay playsinline controls width="480"></video>
+<pre id="log">starting...</pre>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+<script>
+  const log = (m) => { document.getElementById("log").textContent += "\n" + m; console.log(m); };
+  const video = document.getElementById("v");
+  const hls = new Hls();
+  hls.on(Hls.Events.MANIFEST_PARSED, () => log("manifest parsed, levels: " + hls.levels.length));
+  hls.on(Hls.Events.ERROR, (_, d) => log("HLS error: " + d.type + " / " + d.details + " / fatal: " + d.fatal));
+  video.addEventListener("error", () => log("video element error: " + (video.error && video.error.message)));
+  hls.loadSource("/stream/master.m3u8");
+  hls.attachMedia(video);
+</script>
+</body>
+</html>

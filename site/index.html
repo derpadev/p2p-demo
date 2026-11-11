@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>P2P baseline peer</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 12px; background: #111; color: #eee; }
+  video { width: 480px; max-width: 100%; background: #000; }
+  pre { font-size: 14px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<video id="v" muted autoplay playsinline controls></video>
+<pre id="stats">starting...</pre>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "p2p-media-loader-core": "https://cdn.jsdelivr.net/npm/p2p-media-loader-core@2.1.0/dist/p2p-media-loader-core.es.min.js",
+    "p2p-media-loader-hlsjs": "https://cdn.jsdelivr.net/npm/p2p-media-loader-hlsjs@2.1.0/dist/p2p-media-loader-hlsjs.es.min.js"
+  }
+}
+</script>
+<script type="module">
+  import { HlsJsP2PEngine } from "p2p-media-loader-hlsjs";
+
+  const params = new URLSearchParams(location.search);
+  const SWARM = params.get("swarm") ?? "devin-baseline";
+  const ID = params.get("id") ?? ("peer-" + Math.random().toString(36).slice(2, 6));
+  const PROFILE = params.get("profile") ?? "none";
+
+  const video = document.getElementById("v");
+  const out = document.getElementById("stats");
+  const s = { cdn: 0, p2pDown: 0, p2pUp: 0, peers: 0, height: 0, stalls: 0, stallMs: 0, startupMs: null };
+
+  const HlsWithP2P = HlsJsP2PEngine.injectMixin(window.Hls);
+  const hls = new HlsWithP2P({
+    p2p: {
+      core: {
+        swarmId: SWARM,
+        announceTrackers: ["ws://localhost:8000"],
+        rtcConfig: { iceServers: [] }
+      }
+    }
+  });
+
+  const engine = hls.p2pEngine;
+  engine.addEventListener("onChunkDownloaded", (bytes, source) => {
+    if (source === "http") s.cdn += bytes; else s.p2pDown += bytes;
+  });
+  engine.addEventListener("onChunkUploaded", (bytes) => { s.p2pUp += bytes; });
+  const peerSet = new Set();
+  engine.addEventListener("onPeerConnect", (p) => {
+    console.log("peer connect", p);
+    peerSet.add(p?.peerId ?? JSON.stringify(p));
+    s.peers = peerSet.size;
+  });
+  engine.addEventListener("onPeerClose", (p) => {
+    console.log("peer close", p);
+    peerSet.delete(p?.peerId ?? JSON.stringify(p));
+    s.peers = peerSet.size;
+  });
+
+  hls.on(Hls.Events.LEVEL_SWITCHED, (_, d) => { s.height = hls.levels[d.level].height; });
+  hls.on(Hls.Events.ERROR, (_, d) => console.log("HLS error:", d.type, d.details, "fatal:", d.fatal));
+
+  // stall tracking: only counts after playback has started
+  const t0 = performance.now();
+  let started = false;
+  let stallStart = null;
+  video.addEventListener("playing", () => {
+    if (!started) { started = true; s.startupMs = Math.round(performance.now() - t0); }
+    if (stallStart !== null) { s.stallMs += performance.now() - stallStart; stallStart = null; }
+  });
+  video.addEventListener("waiting", () => {
+    if (started && stallStart === null) { s.stalls++; stallStart = performance.now(); }
+  });
+
+  function bufferAhead() {
+    const t = video.currentTime;
+    for (let i = 0; i < video.buffered.length; i++) {
+      if (t >= video.buffered.start(i) && t <= video.buffered.end(i)) return video.buffered.end(i) - t;
+    }
+    return 0;
+  }
+
+  function snapshot() {
+    const ongoing = stallStart !== null ? performance.now() - stallStart : 0;
+    return {
+      id: ID, profile: PROFILE, height: s.height,
+      cdnBytes: s.cdn, p2pDown: s.p2pDown, p2pUp: s.p2pUp, peers: s.peers,
+      stalls: s.stalls, stallMs: Math.round(s.stallMs + ongoing), startupMs: s.startupMs,
+      bufferSec: Number(bufferAhead().toFixed(1)), playTime: Number(video.currentTime.toFixed(1))
+    };
+  }
+
+  hls.loadSource("/stream/master.m3u8");
+  hls.attachMedia(video);
+  video.play().catch(() => {});
+
+  const mb = (n) => (n / 1e6).toFixed(2) + " MB";
+  setInterval(() => {
+    const r = snapshot();
+    out.textContent =
+      `id / profile: ${ID} / ${PROFILE}\n` +
+      `swarm:        ${SWARM}\n` +
+      `quality:      ${r.height ? r.height + "p" : "-"}\n` +
+      `peers:        ${r.peers}\n` +
+      `from CDN:     ${mb(r.cdnBytes)}\n` +
+      `from peers:   ${mb(r.p2pDown)}\n` +
+      `uploaded:     ${mb(r.p2pUp)}\n` +
+      `stalls:       ${r.stalls} (${(r.stallMs / 1000).toFixed(1)} s)\n` +
+      `buffer:       ${r.bufferSec} s`;
+  }, 500);
+
+  setInterval(() => {
+    fetch("/__report", { method: "POST", body: JSON.stringify(snapshot()), keepalive: true }).catch(() => {});
+  }, 1000);
+</script>
+</body>
+</html>
