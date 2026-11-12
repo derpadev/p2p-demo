@@ -1,0 +1,316 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>P2P vs CDN-only demo</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #181b22; --line: #2a2f3a; --text: #e6e8ec; --dim: #8b93a3;
+    --cdn: #3b82f6; --p2p: #22c55e; --bad: #ef4444; --warn: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 14px 24px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 18px; margin: 0; flex: 1; }
+  main { max-width: 1240px; margin: 0 auto; padding: 20px 24px 40px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 12px; font-weight: 600; }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
+  .pill { padding: 3px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); color: var(--dim); }
+  .pill.ok { color: var(--p2p); border-color: #1f5132; }
+  .pill.bad { color: var(--bad); border-color: #5b2323; }
+  .pill.run { color: var(--warn); border-color: #5a4417; }
+  label.field { display: grid; gap: 6px; color: var(--dim); font-size: 12px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { background: transparent; color: var(--text); border: 0; padding: 8px 14px; cursor: pointer; font: inherit; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: #263043; }
+  input[type=number] { width: 90px; background: #0f1115; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; }
+  .presets button { background: transparent; color: var(--dim); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; margin-right: 4px; cursor: pointer; font: inherit; font-size: 12px; }
+  .presets button:hover { color: var(--text); }
+  .btn { border: 0; border-radius: 8px; padding: 9px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  .btn.go { background: var(--cdn); color: white; }
+  .btn.stop { background: #3a1f24; color: #fca5a5; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .note { color: var(--dim); font-size: 12px; }
+  .err { color: var(--bad); font-size: 13px; min-height: 1em; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .tile { background: #12151b; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .tile .k { color: var(--dim); font-size: 12px; }
+  .tile .v { font-size: 22px; font-weight: 600; margin-top: 2px; }
+  .progress { height: 6px; background: #12151b; border-radius: 3px; overflow: hidden; margin: 10px 0 14px; }
+  .progress > div { height: 100%; background: var(--warn); width: 0; transition: width .5s; }
+  svg text { fill: var(--dim); font-size: 11px; }
+  .peers { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+  .peer { background: #12151b; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
+  .peer.frozen { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad) inset; }
+  .peer.idle { opacity: .45; }
+  .peer .top { display: flex; justify-content: space-between; align-items: center; }
+  .peer .id { font-weight: 600; }
+  .prof { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); margin-left: 6px; }
+  .q { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 6px; background: #262b35; }
+  .q.q720 { background: #1d4ed8; } .q.q480 { background: #1e3a8a; } .q.q240 { background: #334155; }
+  .state { font-size: 12px; color: var(--dim); }
+  .state.frozen { color: var(--bad); font-weight: 600; }
+  .bar { height: 8px; background: #262b35; border-radius: 4px; overflow: hidden; display: flex; }
+  .bar .c { background: var(--cdn); } .bar .p { background: var(--p2p); }
+  .mini { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; margin-right: 14px; font-size: 12px; color: var(--dim); }
+  .legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+  th { color: var(--dim); font-weight: 500; font-size: 12px; }
+  .cmp { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px 32px; }
+  .cmp > div { min-width: 0; }
+  .metric { display: grid; grid-template-columns: 120px 1fr 72px; gap: 10px; align-items: center; margin: 7px 0; font-size: 13px; }
+  .scroll { overflow-x: auto; }
+  .metric .track { height: 14px; background: #12151b; border-radius: 4px; overflow: hidden; }
+  .metric .fill { height: 100%; }
+  .metric .val { text-align: right; font-variant-numeric: tabular-nums; }
+  details summary { cursor: pointer; color: var(--dim); }
+  pre.log { max-height: 280px; overflow: auto; background: #0b0d11; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 12px; margin: 10px 0 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>P2P vs CDN-only demo</h1>
+  <span id="pTracker" class="pill">tracker: ?</span>
+  <span id="pCap" class="pill">CDN cap: ?</span>
+  <span id="pState" class="pill">idle</span>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Run a demo</h2>
+    <div class="row">
+      <label class="field">Mode
+        <span class="seg" id="mode">
+          <button data-mode="cdn-only">CDN only</button>
+          <button data-mode="p2p">With P2P</button>
+          <button data-mode="both" class="on">Both, back to back</button>
+        </span>
+      </label>
+      <label class="field">CDN cap (Mbit/s, 0 = unlimited)
+        <span><input id="cap" type="number" min="0" step="0.5" value="4">
+        <span class="presets"><button data-cap="2">2</button><button data-cap="4">4</button><button data-cap="8">8</button><button data-cap="0">unlimited</button></span></span>
+      </label>
+      <button class="btn go" id="start">Start</button>
+      <button class="btn stop" id="stop" disabled>Stop</button>
+    </div>
+    <p class="note" id="fixed"></p>
+    <div class="err" id="err"></div>
+  </section>
+
+  <section class="card">
+    <h2 id="liveTitle">Live run</h2>
+    <div class="progress"><div id="prog"></div></div>
+    <div class="tiles">
+      <div class="tile"><div class="k">Sent by CDN</div><div class="v" id="tCdn">–</div></div>
+      <div class="tile"><div class="k">Shared between peers</div><div class="v" id="tP2p">–</div></div>
+      <div class="tile"><div class="k">Share from peers</div><div class="v" id="tShare">–</div></div>
+      <div class="tile"><div class="k">Peers frozen right now</div><div class="v" id="tFrozen">–</div></div>
+      <div class="tile"><div class="k">Total time frozen</div><div class="v" id="tStall">–</div></div>
+      <div class="tile"><div class="k">Mean quality now</div><div class="v" id="tQual">–</div></div>
+    </div>
+    <div style="margin-top:16px">
+      <div class="legend"><span><i style="background:var(--cdn)"></i>CDN sending rate (Mbit/s)</span><span><i style="background:var(--bad)"></i>cap</span></div>
+      <svg id="chart" viewBox="0 0 900 200" width="100%" height="200" preserveAspectRatio="none"></svg>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Peers</h2>
+    <div class="legend" style="margin-bottom:10px"><span><i style="background:var(--cdn)"></i>downloaded from CDN</span><span><i style="background:var(--p2p)"></i>downloaded from peers</span><span><i style="background:var(--bad)"></i>red outline = frozen</span></div>
+    <div class="peers" id="peers"></div>
+  </section>
+
+  <section class="card">
+    <h2>Latest comparison</h2>
+    <div id="cmp" class="note">Run both modes to see them side by side.</div>
+  </section>
+
+  <section class="card">
+    <h2>All demo runs</h2>
+    <div id="hist" class="note">No demo runs yet.</div>
+  </section>
+
+  <section class="card">
+    <details><summary>Launcher output</summary><pre class="log" id="log"></pre></details>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const MB = (b) => (b / 1e6).toFixed(1) + " MB";
+  const modeName = (m) => (m === "p2p" ? "With P2P" : m === "cdn-only" ? "CDN only" : "Both");
+  const capName = (c) => (c > 0 ? c + " Mbit/s" : "unlimited");
+  let mode = "both";
+  let status = null;
+  let lastRecording = null;
+
+  for (const b of $("mode").querySelectorAll("button")) {
+    b.onclick = () => {
+      mode = b.dataset.mode;
+      for (const x of $("mode").querySelectorAll("button")) x.classList.toggle("on", x === b);
+    };
+  }
+  for (const b of document.querySelectorAll(".presets button")) b.onclick = () => { $("cap").value = b.dataset.cap; };
+
+  $("start").onclick = async () => {
+    $("err").textContent = "";
+    const cap = Number($("cap").value);
+    const r = await fetch(`/__demo/start?mode=${mode}&cap=${cap}`, { method: "POST" });
+    if (!r.ok) $("err").textContent = (await r.json()).error;
+    poll();
+  };
+  $("stop").onclick = async () => {
+    const r = await fetch("/__demo/stop", { method: "POST" });
+    if (!r.ok) $("err").textContent = (await r.json()).error;
+    poll();
+  };
+
+  function renderHeader(s) {
+    $("pTracker").textContent = "tracker: " + (s.tracker ? "running" : "not running");
+    $("pTracker").className = "pill " + (s.tracker ? "ok" : "bad");
+    $("pCap").textContent = "CDN cap: " + capName(s.capMbps);
+    const busy = !!s.current;
+    $("pState").textContent = s.stopping ? "stopping..." : busy ? (s.current.waitingUntil && !s.recording ? "between runs" : "running") : s.busyElsewhere ? "batch running elsewhere" : "idle";
+    $("pState").className = "pill " + (busy || s.busyElsewhere ? "run" : "");
+    $("start").disabled = busy || s.busyElsewhere;
+    $("stop").disabled = !busy || s.stopping;
+    const c = s.config;
+    const counts = {};
+    for (let i = 0; i < c.peers; i++) { const p = c.mix[i % c.mix.length]; counts[p] = (counts[p] ?? 0) + 1; }
+    $("fixed").textContent =
+      `Fixed settings: ${c.peers} peers (${Object.entries(counts).map(([p, n]) => `${n} ${p}`).join(", ")}), one joins every ${c.interval} s, ` +
+      `${c.clipSec} s clip, CPU slowdown ${Object.entries(c.profiles).map(([p, x]) => `${p} x${x}`).join(" / ")}. ` +
+      `Each run takes about ${Math.round(c.runSec / 60 * 10) / 10} min; "both" runs CDN only first, then P2P, ${c.gapSec} s apart.` +
+      (s.tracker ? "" : " The tracker must be running for P2P runs (node tracker.mjs).");
+  }
+
+  function renderLive(s) {
+    const c = s.config;
+    const cur = s.current;
+    if (cur) {
+      const left = s.queued.length ? ` (then: ${s.queued.map(modeName).join(", ")})` : "";
+      $("liveTitle").textContent = `Live run: ${modeName(cur.mode)}, cap ${capName(cur.cap)}${left}`;
+    } else if (s.recording) {
+      $("liveTitle").textContent = `Live run: ${s.recording} (started outside the dashboard)`;
+    } else {
+      $("liveTitle").textContent = lastRecording ? "Last run (finished)" : "Live run";
+    }
+    if (s.recording) lastRecording = s.recording;
+    $("prog").style.width = s.elapsedMs != null ? Math.min(100, s.elapsedMs / 1000 / c.runSec * 100) + "%" : (cur ? "0%" : $("prog").style.width);
+
+    const ps = s.peers;
+    const cdnPeers = ps.reduce((a, p) => a + p.cdnBytes, 0);
+    const p2p = ps.reduce((a, p) => a + p.p2pDown, 0);
+    const playing = ps.filter((p) => p.height > 0 && p.playTime < c.clipSec - 1);
+    if (ps.length || s.recording) {
+      $("tCdn").textContent = MB(s.cdnServedBytes);
+      $("tP2p").textContent = MB(p2p);
+      $("tShare").textContent = cdnPeers + p2p > 0 ? Math.round(p2p / (cdnPeers + p2p) * 100) + " %" : "–";
+      $("tFrozen").textContent = `${ps.filter((p) => p.stalled).length} / ${ps.length}`;
+      $("tStall").textContent = (ps.reduce((a, p) => a + p.stallMs, 0) / 1000).toFixed(1) + " s";
+      $("tQual").textContent = playing.length ? Math.round(playing.reduce((a, p) => a + p.height, 0) / playing.length) + "p" : "–";
+    }
+    renderChart(s.throughput, cur ? cur.cap : s.capMbps, c.runSec);
+    renderPeers(s);
+    $("log").textContent = s.log.join("\n");
+  }
+
+  function renderChart(points, cap, runSec) {
+    const W = 900, H = 200, L = 36, B = 22, T = 8;
+    const maxY = Math.max(cap > 0 ? cap * 1.25 : 1, ...points.map((p) => p.mbps), 1);
+    const x = (t) => L + (t / 1000) / runSec * (W - L - 8);
+    const y = (v) => H - B - v / maxY * (H - B - T);
+    let g = "";
+    const step = maxY > 20 ? 10 : maxY > 8 ? 2 : 1;
+    for (let v = 0; v <= maxY; v += step) g += `<line x1="${L}" x2="${W - 8}" y1="${y(v)}" y2="${y(v)}" stroke="#2a2f3a"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+    for (let t = 0; t <= runSec; t += 30) g += `<text x="${x(t * 1000)}" y="${H - 6}" text-anchor="middle">${t}s</text>`;
+    if (cap > 0) g += `<line x1="${L}" x2="${W - 8}" y1="${y(cap)}" y2="${y(cap)}" stroke="#ef4444" stroke-dasharray="5 4"/>`;
+    if (points.length > 1) {
+      const d = points.map((p) => `${x(p.t).toFixed(1)},${y(p.mbps).toFixed(1)}`).join(" ");
+      g += `<polyline points="${x(points[0].t)},${y(0)} ${d} ${x(points.at(-1).t)},${y(0)}" fill="rgba(59,130,246,.15)" stroke="none"/>`;
+      g += `<polyline points="${d}" fill="none" stroke="#3b82f6" stroke-width="2"/>`;
+    }
+    $("chart").innerHTML = g;
+  }
+
+  function renderPeers(s) {
+    const c = s.config;
+    const byId = new Map(s.peers.map((p) => [p.id, p]));
+    let html = "";
+    for (let i = 0; i < c.peers; i++) {
+      const id = "P" + String(i + 1).padStart(2, "0");
+      const profile = c.mix[i % c.mix.length];
+      const p = byId.get(id);
+      if (!p) {
+        html += `<div class="peer idle"><div class="top"><span><span class="id">${id}</span><span class="prof">${profile} x${c.profiles[profile]}</span></span><span class="state">joins at ${i * c.interval}s</span></div></div>`;
+        continue;
+      }
+      const done = p.playTime >= c.clipSec - 1;
+      const state = p.stalled ? "frozen" : done ? "finished" : p.startupMs == null ? "loading" : "playing";
+      const total = p.cdnBytes + p.p2pDown;
+      const cdnPct = total ? p.cdnBytes / total * 100 : 0;
+      html += `<div class="peer ${p.stalled ? "frozen" : ""}">
+        <div class="top"><span><span class="id">${id}</span><span class="prof">${profile} x${c.profiles[profile]}</span></span>
+          <span class="q q${p.height}">${p.height ? p.height + "p" : "–"}</span></div>
+        <div class="mini"><span class="state ${p.stalled ? "frozen" : ""}">${state}</span><span>${p.playTime.toFixed(0)} / ${c.clipSec} s</span></div>
+        <div class="bar"><div class="c" style="width:${cdnPct}%"></div><div class="p" style="width:${total ? 100 - cdnPct : 0}%"></div></div>
+        <div class="mini"><span>CDN ${MB(p.cdnBytes)}</span><span>peers ${MB(p.p2pDown)}</span></div>
+        <div class="mini"><span>uploaded ${MB(p.p2pUp)}</span><span>buffer ${p.bufferSec}s</span></div>
+        <div class="mini"><span>freezes ${p.stalls} (${(p.stallMs / 1000).toFixed(1)}s)</span><span>startup ${p.startupMs != null ? (p.startupMs / 1000).toFixed(1) + "s" : "–"}</span></div>
+      </div>`;
+    }
+    $("peers").innerHTML = html;
+  }
+
+  function renderHistory(h) {
+    if (!h.length) { $("hist").innerHTML = "No demo runs yet."; $("cmp").innerHTML = "Run both modes to see them side by side."; return; }
+    const pct = (x) => Math.round(x * 100) + " %";
+    $("hist").innerHTML = `<div class="scroll"><table><tr><th>Finished</th><th>Mode</th><th>Cap</th><th>Sent by CDN</th><th>Shared by peers</th><th>Share from peers</th><th>Time frozen</th><th>Peers that froze</th><th>Mean quality</th><th>Mean startup</th><th>Finished clip</th></tr>` +
+      h.map((r) => `<tr><td>${new Date(r.date).toLocaleString()}</td><td>${modeName(r.mode)}</td><td>${r.capMbps != null ? capName(r.capMbps) : "?"}</td>
+        <td>${r.cdnMB} MB</td><td>${r.p2pMB} MB</td><td>${pct(r.p2pShare)}</td><td>${r.stallSec} s</td><td>${r.stalledPeers} / ${r.peers}</td>
+        <td>${r.meanQuality ?? "–"}p</td><td>${r.meanStartupMs != null ? (r.meanStartupMs / 1000).toFixed(1) + " s" : "–"}</td><td>${r.finished} / ${r.peers}</td></tr>`).join("") + `</table></div>`;
+
+    const a = h.find((r) => r.mode === "cdn-only");
+    const b = h.find((r) => r.mode === "p2p");
+    if (!a || !b) { $("cmp").innerHTML = `Run ${!a ? "a CDN-only" : "a P2P"} demo too to see them side by side.`; return; }
+    const metrics = [
+      ["Sent by CDN", "cdnMB", " MB", "lower is better"],
+      ["Total time frozen", "stallSec", " s", "lower is better"],
+      ["Peers that froze", "stalledPeers", "", "lower is better"],
+      ["Mean quality", "meanQuality", "p", "higher is better"],
+      ["Mean startup", "meanStartupMs", " ms", "lower is better"]
+    ];
+    const side = (r, color) => metrics.map(([label, k, unit]) => {
+      const max = Math.max(a[k] ?? 0, b[k] ?? 0, 1);
+      return `<div class="metric"><span>${label}</span><div class="track"><div class="fill" style="width:${(r[k] ?? 0) / max * 100}%;background:${color}"></div></div><span class="val">${r[k] ?? "–"}${unit}</span></div>`;
+    }).join("");
+    const capNote = a.capMbps !== b.capMbps ? `<p class="err">These two runs used different caps (${capName(a.capMbps)} vs ${capName(b.capMbps)}), so they are not directly comparable.</p>` : "";
+    $("cmp").innerHTML = `${capNote}<div class="cmp">
+      <div><h3 style="margin:0 0 8px;font-size:15px">CDN only <span class="note">cap ${capName(a.capMbps)}, ${new Date(a.date).toLocaleTimeString()}</span></h3>${side(a, "var(--cdn)")}</div>
+      <div><h3 style="margin:0 0 8px;font-size:15px">With P2P <span class="note">cap ${capName(b.capMbps)}, ${new Date(b.date).toLocaleTimeString()}, ${pct(b.p2pShare)} from peers</span></h3>${side(b, "var(--p2p)")}</div>
+    </div><p class="note">One run of each. Single runs vary a lot; use batch.mjs and analyze.mjs for conclusions.</p>`;
+  }
+
+  let historyKey = "";
+  async function poll() {
+    try {
+      status = await (await fetch("/__demo/status")).json();
+      renderHeader(status);
+      renderLive(status);
+      const key = `${status.current?.name ?? ""}|${status.recording ?? ""}`;
+      if (key !== historyKey) { historyKey = key; renderHistory(await (await fetch("/__demo/history")).json()); }
+    } catch {
+      $("pState").textContent = "server not reachable";
+      $("pState").className = "pill bad";
+    }
+  }
+  poll();
+  setInterval(poll, 1000);
+</script>
+</body>
+</html>

@@ -29,38 +29,45 @@
   const SWARM = params.get("swarm") ?? "devin-baseline";
   const ID = params.get("id") ?? ("peer-" + Math.random().toString(36).slice(2, 6));
   const PROFILE = params.get("profile") ?? "none";
+  const P2P = params.get("p2p") !== "0";
 
   const video = document.getElementById("v");
   const out = document.getElementById("stats");
   const s = { cdn: 0, p2pDown: 0, p2pUp: 0, peers: 0, height: 0, stalls: 0, stallMs: 0, startupMs: null };
 
-  const HlsWithP2P = HlsJsP2PEngine.injectMixin(window.Hls);
-  const hls = new HlsWithP2P({
-    p2p: {
-      core: {
-        swarmId: SWARM,
-        announceTrackers: ["ws://localhost:8000"],
-        rtcConfig: { iceServers: [] }
+  let hls;
+  if (P2P) {
+    const HlsWithP2P = HlsJsP2PEngine.injectMixin(window.Hls);
+    hls = new HlsWithP2P({
+      p2p: {
+        core: {
+          swarmId: SWARM,
+          announceTrackers: ["ws://localhost:8000"],
+          rtcConfig: { iceServers: [] }
+        }
       }
-    }
-  });
+    });
 
-  const engine = hls.p2pEngine;
-  engine.addEventListener("onChunkDownloaded", (bytes, source) => {
-    if (source === "http") s.cdn += bytes; else s.p2pDown += bytes;
-  });
-  engine.addEventListener("onChunkUploaded", (bytes) => { s.p2pUp += bytes; });
-  const peerSet = new Set();
-  engine.addEventListener("onPeerConnect", (p) => {
-    console.log("peer connect", p);
-    peerSet.add(p?.peerId ?? JSON.stringify(p));
-    s.peers = peerSet.size;
-  });
-  engine.addEventListener("onPeerClose", (p) => {
-    console.log("peer close", p);
-    peerSet.delete(p?.peerId ?? JSON.stringify(p));
-    s.peers = peerSet.size;
-  });
+    const engine = hls.p2pEngine;
+    engine.addEventListener("onChunkDownloaded", (bytes, source) => {
+      if (source === "http") s.cdn += bytes; else s.p2pDown += bytes;
+    });
+    engine.addEventListener("onChunkUploaded", (bytes) => { s.p2pUp += bytes; });
+    const peerSet = new Set();
+    engine.addEventListener("onPeerConnect", (p) => {
+      console.log("peer connect", p);
+      peerSet.add(p?.peerId ?? JSON.stringify(p));
+      s.peers = peerSet.size;
+    });
+    engine.addEventListener("onPeerClose", (p) => {
+      console.log("peer close", p);
+      peerSet.delete(p?.peerId ?? JSON.stringify(p));
+      s.peers = peerSet.size;
+    });
+  } else {
+    hls = new Hls();
+    hls.on(Hls.Events.FRAG_LOADED, (_, d) => { s.cdn += d.frag.stats.loaded; });
+  }
 
   hls.on(Hls.Events.LEVEL_SWITCHED, (_, d) => { s.height = hls.levels[d.level].height; });
   hls.on(Hls.Events.ERROR, (_, d) => console.log("HLS error:", d.type, d.details, "fatal:", d.fatal));
@@ -88,7 +95,7 @@
   function snapshot() {
     const ongoing = stallStart !== null ? performance.now() - stallStart : 0;
     return {
-      id: ID, profile: PROFILE, height: s.height,
+      id: ID, profile: PROFILE, mode: P2P ? "p2p" : "cdn-only", height: s.height, stalled: stallStart !== null,
       cdnBytes: s.cdn, p2pDown: s.p2pDown, p2pUp: s.p2pUp, peers: s.peers,
       stalls: s.stalls, stallMs: Math.round(s.stallMs + ongoing), startupMs: s.startupMs,
       bufferSec: Number(bufferAhead().toFixed(1)), playTime: Number(video.currentTime.toFixed(1))
@@ -104,7 +111,7 @@
     const r = snapshot();
     out.textContent =
       `id / profile: ${ID} / ${PROFILE}\n` +
-      `swarm:        ${SWARM}\n` +
+      `swarm:        ${P2P ? SWARM : "off (CDN only)"}\n` +
       `quality:      ${r.height ? r.height + "p" : "-"}\n` +
       `peers:        ${r.peers}\n` +
       `from CDN:     ${mb(r.cdnBytes)}\n` +
